@@ -1,0 +1,28 @@
+amends "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Config.pkl"
+import "package://github.com/jdx/hk/releases/download/v2.12.0/hk@2.12.0#/Builtins.pkl"
+
+// pre-commit: eslint на изменённых файлах
+// pre-push: полный прогон проверок (тот же, что в CI)
+// commit-msg: Conventional Commits
+local linters = new Mapping {
+    ["eslint"] = Builtins.eslint
+}
+
+hooks {
+    ["pre-commit"] {
+        fix = false
+        steps = linters
+    }
+    ["pre-push"] {
+        steps {
+            ["check"] {
+                check = "mise run check"
+            }
+        }
+    }
+    ["commit-msg"] {
+        steps {
+            ["conventional-commit"] = Builtins.check_conventional_commit
+        }
+    }
+}

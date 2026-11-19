@@ -1,0 +1,63 @@
+# Версии инструментов и задачи проекта. Справка: https://mise.jdx.dev
+[settings]
+experimental = true
+
+[tools]
+node = "22.23.5"
+"npm:eslint" = "10.15.0"
+"npm:@typespec/compiler" = "1.18.0"
+"npm:@typespec/http" = "1.18.0"
+"npm:@typespec/rest" = "0.88.0"
+hk = "2.12.0"
+pitchfork = "2.34.0"
+
+[env]
+# Порт dev-сервера по умолчанию
+PORT = "3000"
+
+# Фоновый dev-сервер: mise daemons start/stop/status, логи — mise daemons logs
+[daemons.server]
+run = "exec node src/server.js"
+ready_port = 3000
+
+# ---- Задачи ----
+
+# Установка зависимостей (проект без npm-пакетов, проверяем окружение)
+[tasks.install]
+description = "Установка окружения (проверка версии Node.js)"
+run = 'echo "node $(node --version) — внешних npm-зависимостей нет"'
+
+# Запуск приложения
+[tasks.start]
+description = "Запуск приложения на http://localhost:3000"
+run = "node src/server.js"
+
+# Линтер
+[tasks.lint]
+description = "ESLint по src/, test/, public/"
+run = "eslint src test public"
+
+# Проверка контракта TypeSpec
+[tasks.contract]
+description = "Компиляция контракта typespec/main.tsp"
+run = "npx --no-install tsp compile ./typespec && echo 'OpenAPI схема: typespec/generated/openapi.json'"
+
+# TypeSpec → OpenAPI → браузерный SDK
+[tasks.generate]
+description = "Генерация OpenAPI и браузерного SDK"
+depends = ["contract"]
+run = "node scripts/generate-api-client.js"
+
+# Тесты (включая дымовой)
+[tasks.test]
+description = "API, unit и браузерные E2E-тесты"
+run = "node --test --test-force-exit test/calendar.test.js test/server.test.js && npx playwright test"
+
+[tasks.mutation]
+description = "Проверка, что тест обнаруживает нарушенное правило пересечения"
+run = "node scripts/verify-booking-rule.js"
+
+# Единая команда проверок: её же вызывает CI и git-хуки
+[tasks.check]
+description = "Все проверки: контракт, SDK, линтер и тесты"
+depends = ["generate", "lint", "test", "mutation"]

@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jdx/mise-action@v2
+        # mise ставит инструменты по mise.toml и кэширует их между запусками
+      - run: npm ci
+      # Браузеры Playwright не входят в npm-пакеты: без этой команды
+      # mise run check падает на test/browser.e2e.test.js с ошибкой
+      # «Executable doesn't exist ... chromium_headless_shell»
+      - run: npx playwright install --with-deps chromium
+      - run: mise run check

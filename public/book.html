@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Календарь звонков</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>📞 Календарь звонков</h1>
+    <nav>
+      <button id="tab-guest" class="tab active">Записаться (гость)</button>
+      <button id="tab-admin" class="tab">Кабинет владельца</button>
+      <a href="/" class="home-link">← Главная</a>
+    </nav>
+  </header>
+
+  <main>
+    <!-- Гость -->
+    <section id="view-guest">
+      <h2>Запись на звонок</h2>
+      <label>Тип встречи:
+        <select id="guest-event-type"></select>
+      </label>
+      <label>Дата:
+        <input type="date" id="guest-date">
+      </label>
+      <div id="guest-slots" class="slots"></div>
+      <form id="guest-form" hidden>
+        <label>Имя: <input id="guest-name" required></label>
+        <label>Email: <input id="guest-email" type="email" required></label>
+        <label>Комментарий: <input id="guest-comment"></label>
+        <button type="submit">Записаться</button>
+      </form>
+      <p id="guest-result"></p>
+    </section>
+
+    <!-- Владелец -->
+    <section id="view-admin" hidden>
+      <h2>Типы встреч</h2>
+      <form id="event-type-form">
+        <label>Название: <input id="et-name" required></label>
+        <label>Длительность (мин):
+          <select id="et-duration">
+            <option>15</option><option selected>30</option><option>60</option>
+          </select>
+        </label>
+        <label>Описание: <input id="et-description"></label>
+        <button type="submit">Создать</button>
+      </form>
+      <ul id="event-type-list"></ul>
+
+      <h2>Расписание доступности</h2>
+      <form id="availability-form">
+        <div id="weekday-checks">
+          <label><input type="checkbox" value="1" checked>Пн</label>
+          <label><input type="checkbox" value="2" checked>Вт</label>
+          <label><input type="checkbox" value="3" checked>Ср</label>
+          <label><input type="checkbox" value="4" checked>Чт</label>
+          <label><input type="checkbox" value="5" checked>Пт</label>
+          <label><input type="checkbox" value="6">Сб</label>
+          <label><input type="checkbox" value="7">Вс</label>
+        </div>
+        <label>С: <input type="time" id="av-start" value="09:00"></label>
+        <label>До: <input type="time" id="av-end" value="18:00"></label>
+        <label>Часовой пояс: <input id="av-time-zone" value="Asia/Almaty" required></label>
+        <button type="submit">Сохранить</button>
+      </form>
+
+      <h2>Брони</h2>
+      <ul id="booking-list"></ul>
+    </section>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
