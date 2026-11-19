@@ -9,9 +9,11 @@ on:
     types: [created]
 
 # Ограничение параллельных запусков по номеру issue/PR:
-# новый прогон отменяет текущий (cancel-in-progress).
+# новый прогон пользователя отменяет текущий (cancel-in-progress).
+# Тип автора в группе: комментарий самого агента (бот) не отменяет прогон,
+# который его породил, — у бота отдельная группа.
 concurrency:
-  group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}
+  group: opencode-${{ github.event.issue.number || github.event.pull_request.number }}-${{ github.event.comment.user.type }}
   cancel-in-progress: true
 
 jobs:
