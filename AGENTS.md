@@ -8,7 +8,9 @@
 - `mise run test` — тесты (node --test)
 - `mise run lint` — ESLint (`src/`, `test/`, `public/`)
 - `mise run contract` — компиляция TypeSpec-контракта в OpenAPI
-- `mise run check` — все проверки: контракт + линтер + тесты. Её же запускают CI (`.github/workflows/ci.yml`) и git-хуки hk (pre-commit — eslint, pre-push — check, commit-msg — Conventional Commits)
+- `mise run generate` — TypeSpec → OpenAPI → браузерный SDK
+- `mise run mutation` — проверка, что тест ловит нарушенное правило пересечения
+- `mise run check` — все проверки: генерация контракта и SDK, линтер, тесты, mutation-тест. Её же запускают CI (`.github/workflows/ci.yml`) и git-хуки hk (pre-commit — eslint, pre-push — check, commit-msg — Conventional Commits)
 
 Версии инструментов зафиксированы в `mise.toml`, npm-пакеты (TypeSpec, eslint) — в `package.json`/`package-lock.json`.
 
@@ -24,6 +26,14 @@
 - Генерация повторяется в CI. Генерируемые пути и запрет ручных изменений записаны в AGENTS.md.
 
 ## Agent skills
+
+### Project skills
+
+Скиллы проекта лежат в репозитории: `.opencode/skills/` (`to-spec`, `to-tickets`, `implement-spec`) — на этом наборе рассчитан и локальный агент, и агент в GitHub Actions. Глобальные скиллы (`~/matt-skills/skills` в `opencode.jsonc`) доступны только на машине разработчика; на свежий раннер они не попадают.
+
+### GitHub-агент
+
+Воркфлоу `.github/workflows/opencode.yml` вызывает агента командой `/oc` или `/opencode` в комментарии к issue или PR (автор — `OWNER`/`MEMBER`/`COLLABORATOR`, комментарии ботов игнорируются). События, модель, права и ограничения описаны в README.md.
 
 ### Issue tracker
 
