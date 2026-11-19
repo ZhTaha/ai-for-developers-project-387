@@ -1,6 +1,6 @@
 {
   "name": "ai-for-developers-project-387",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Сервис бронирования тайм-слотов для звонков (учебный проект Hexlet, курс «ИИ для разработчиков 2.0»)",
   "main": "src/server.js",
   "type": "commonjs",
