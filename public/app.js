@@ -159,7 +159,8 @@ async function loadBookings() {
     ? bookings
         .map((booking) => {
           const type = eventTypes.find((eventType) => eventType.id === booking.eventTypeId);
-          const topic = booking.comment ? ` — ${escapeHtml(booking.comment)}` : '';
+          const comment = typeof booking.comment === 'string' ? booking.comment.trim() : '';
+          const topic = comment ? ` — ${escapeHtml(comment)}` : '';
           return `<li>${booking.slotStart.replace('T', ' ')} — ${type ? type.name : ''} — ${booking.guestName} (${booking.guestEmail})${topic} <button data-cancel="${booking.id}">Отменить</button></li>`;
         })
         .join('')
