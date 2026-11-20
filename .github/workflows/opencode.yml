@@ -49,6 +49,13 @@ jobs:
         env:
           # Ключ модели только из Secrets репозитория, не в тексте воркфлоу.
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # В CI некому ответить на запрос разрешения: в V1 external_directory,
+          # doom_loop и чтение .env по умолчанию "ask", и прогон зависает
+          # до тайм-аута (прогон 44678615419: Glob вне рабочего каталога
+          # раннера). Заменяем "ask" на явные решения: внешние каталоги
+          # разрешены (bash и так разрешён полностью), зацикливание и чтение
+          # .env блокируются сразу — агент получит ошибку, а не зависание.
+          OPENCODE_PERMISSION: '{"external_directory": {"*": "allow"}, "doom_loop": "deny", "read": {"*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}'
         with:
           model: opencode/mimo-v2.6-flash-free
           # Набор команд по умолчанию, задан явно (см. README.md).
