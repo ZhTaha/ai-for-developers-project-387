@@ -2,6 +2,8 @@ name: Browser check
 
 # Независимая браузерная проверка (отдельно от ci.yml): Playwright со trace,
 # артефакт именуется точным head-sha PR — его сверяют с head ветки PR.
+# Скриншоты входят в trace (`--trace on`), отдельный флаг --screenshot
+# этой версией Playwright не поддерживается.
 on:
   pull_request:
 
@@ -23,7 +25,7 @@ jobs:
       - run: npx playwright install --with-deps chromium
 
       - name: Run browser tests with trace
-        run: npx playwright test --trace on --screenshot only-on-failure
+        run: npx playwright test --trace on
 
       - name: Record head SHA
         if: always()

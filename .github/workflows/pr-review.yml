@@ -132,7 +132,8 @@ jobs:
 
       - name: Install opencode CLI
         run: |
-          curl -fsSL https://opencode.ai/install | bash
+          # V2: отдельный установщик — https://opencode.ai/install ставит только OpenCode 1.
+          curl -fsSL https://opencode.ai/v2/install | bash
           echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
           "$HOME/.opencode/bin/opencode" --version
 
@@ -194,6 +195,13 @@ jobs:
           USED_BEFORE: ${{ needs.budget.outputs.used }}
         run: |
           set -euo pipefail
+          # Логи модели — в журнал прогона (в комментарий они не попадают).
+          echo '::group::model-stderr.log'
+          tail -c 4000 model-stderr.log 2>/dev/null || true
+          echo '::endgroup::'
+          echo '::group::model-stdout.log'
+          tail -c 4000 model-stdout.log 2>/dev/null || true
+          echo '::endgroup::'
           stderr_tail=$(tail -c 2000 model-stderr.log 2>/dev/null || true)
           used_before=${USED_BEFORE:-0}
           if [ -z "${MODEL_EXIT:-}" ]; then
