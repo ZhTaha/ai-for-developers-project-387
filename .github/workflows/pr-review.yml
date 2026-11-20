@@ -1,0 +1,243 @@
+name: PR review
+
+# Авторевью на событие pull_request: читает критерии из REVIEW.md, запускает
+# модель обычным CLI (opencode run), а итог публикует шаг без модели.
+# Бюджет запусков модели на PR считается по истории прогонов Actions —
+# источнику, который токен агента переписать не может.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Без OIDC: id-token не запрашивается, ключ модели — только секрет репозитория.
+permissions:
+  contents: read
+  issues: read
+  actions: read
+  checks: read
+  statuses: read
+  pull-requests: write
+
+# Один активный прогон на PR: новый push отменяет устаревший.
+concurrency:
+  group: pr-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  # Предел запусков модели на один PR.
+  MAX_MODEL_RUNS: "3"
+  MODEL: opencode/mimo-v2.6-flash-free
+
+jobs:
+  budget:
+    # Фильтр доверенных до вызова модели: не draft, ветка из этого
+    # репозитория (не fork), база main, автор OWNER/MEMBER/COLLABORATOR.
+    # Остальные PR пропускаются целиком и секрет модели не получают.
+    if: |
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'main' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      decision: ${{ steps.count.outputs.decision }}
+      used: ${{ steps.count.outputs.used }}
+    steps:
+      # Предел проверяется кодом ДО вызова модели: источник бюджета —
+      # история прогонов Actions (счётчик шага Run model в задании review).
+      - name: Count model runs for this PR
+        id: count
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.event.pull_request.head.ref }}
+          CURRENT_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          branch_q=$(jq -rn --arg v "$HEAD_BRANCH" '$v | @uri')
+          used=0
+          while read -r id; do
+            [ -n "$id" ] || continue
+            conclusion=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" --jq '([.jobs[] | select(.name == "review")] | if length == 0 then "skipped" else ((sort_by(.run_attempt) | .[-1]) as $j | (($j.steps // []) | map(select(.name == "Run model")) | .[0].conclusion // "skipped")) end)')
+            if [ "$conclusion" != "skipped" ]; then
+              used=$((used + 1))
+            fi
+          done < <(gh api --paginate \
+            "repos/$GITHUB_REPOSITORY/actions/workflows/pr-review.yml/runs?branch=$branch_q&per_page=100" \
+            --jq ".workflow_runs[] | select(.id != $CURRENT_RUN_ID and .status == \"completed\") | .id")
+          echo "used=$used"
+          echo "used=$used" >> "$GITHUB_OUTPUT"
+          if [ "$used" -ge "$MAX_MODEL_RUNS" ]; then
+            echo "decision=skip" >> "$GITHUB_OUTPUT"
+          else
+            echo "decision=run" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish limit_exhausted without model
+        if: steps.count.outputs.decision == 'skip'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          USED: ${{ steps.count.outputs.used }}
+        run: |
+          set -euo pipefail
+          {
+            printf '## Авторевью — `limit_exhausted`\n\n'
+            printf -- '- PR #%s, HEAD `%s`\n' "$PR_NUMBER" "$HEAD_SHA"
+            printf -- '- Бюджет модели на PR исчерпан: %s из %s запусков по истории прогонов Actions.\n' "$USED" "$MAX_MODEL_RUNS"
+            printf -- '- Новые события PR модель не запускают: итог ревью решает человек по критериям [REVIEW.md](%s).\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$HEAD_SHA/REVIEW.md"
+            printf -- '- Прогон: %s\n' "$RUN_URL"
+          } | jq -Rs '{body: .}' | gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input -
+
+      # Если подсчёт бюджета упал (инфраструктура Actions), итог всё равно
+      # публикует шаг без модели.
+      - name: Publish infra status without model
+        if: failure() && steps.count.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            printf '## Авторевью — `infra`\n\n'
+            printf -- '- PR #%s, HEAD `%s`\n' "$PR_NUMBER" "$HEAD_SHA"
+            printf -- '- Не удалось посчитать бюджет запусков модели: подробности в логах прогона.\n'
+            printf -- '- Прогон: %s\n' "$RUN_URL"
+          } | jq -Rs '{body: .}' | gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input - \
+            || echo '::warning::статус infra не опубликован'
+
+  review:
+    needs: budget
+    if: needs.budget.outputs.decision == 'run'
+    runs-on: ubuntu-latest
+    # Тайм-аут задания: подготовка окружения, модель (шаг модели ограничен
+    # отдельно — 10 минут) и публикация итога.
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          # Токен checkout не сохраняется: модель работает без токена
+          # репозитория, комментарии публикует шаг с GH_TOKEN ниже.
+          persist-credentials: false
+
+      # Окружение готовится до модели, как в ci.yml/opencode.yml.
+      - name: Setup environment
+        uses: jdx/mise-action@v2
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Install opencode CLI
+        run: |
+          curl -fsSL https://opencode.ai/install | bash
+          echo "$HOME/.opencode/bin" >> "$GITHUB_PATH"
+          "$HOME/.opencode/bin/opencode" --version
+
+      - name: Prepare review prompt (без модели)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          gh pr diff "$PR_NUMBER" > pr.diff
+          {
+            echo '# Ревью PR'
+            echo
+            echo 'Проведи ревью изменений по критериям из REVIEW.md (ниже) и запиши результат в файл findings.md в текущем каталоге.'
+            echo 'Формат каждого замечания: файл, строка, условие ошибки, последствие. Если дефектов нет — напиши прямо: «Дефектов по критериям не найдено». Форматирование и стиль не проверяй.'
+            echo
+            echo '## Критерии (REVIEW.md)'
+            echo
+            cat REVIEW.md
+            echo
+            echo '## Дифф PR'
+            echo
+            echo '```diff'
+            head -c 400000 pr.diff
+            echo
+            echo '```'
+            echo
+            echo 'Рабочий каталог — репозиторий проекта: при сомнениях читай файлы и запускай проверки (mise run check).'
+          } > review-prompt.md
+          wc -c review-prompt.md
+
+      - name: Run model
+        id: model
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          OPENCODE_PERMISSION: '{"external_directory": {"*": "allow"}, "doom_loop": "deny", "read": {"*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}'
+        run: |
+          set +e
+          timeout --signal=TERM --kill-after=30s 600 opencode run \
+            --auto \
+            --model "$MODEL" \
+            --file review-prompt.md \
+            "Следуй инструкции из вложения: проведи ревью по критериям и запиши результат в findings.md в текущем каталоге." \
+            > model-stdout.log 2> model-stderr.log
+          code=$?
+          echo "exit=$code" >> "$GITHUB_OUTPUT"
+          # Итог публикует следующий шаг без модели — здесь не падаем,
+          # чтобы причина (timeout/infra/agent_failed) дошла до комментария.
+          exit 0
+
+      - name: Publish review result without model
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MODEL_EXIT: ${{ steps.model.outputs.exit }}
+          USED_BEFORE: ${{ needs.budget.outputs.used }}
+        run: |
+          set -euo pipefail
+          stderr_tail=$(tail -c 2000 model-stderr.log 2>/dev/null || true)
+          used_before=${USED_BEFORE:-0}
+          if [ -z "${MODEL_EXIT:-}" ]; then
+            status=infra
+            reason='Окружение не подготовлено — шаг модели не выполнялся. Подробности в логах прогона.'
+            used_now=$used_before
+          elif [ "$MODEL_EXIT" = '124' ] || [ "$MODEL_EXIT" = '137' ]; then
+            status=timeout
+            reason='Модель не уложилась в лимит шага (10 минут).'
+            used_now=$((used_before + 1))
+          elif [ "$MODEL_EXIT" = '126' ] || [ "$MODEL_EXIT" = '127' ]; then
+            status=infra
+            reason="CLI opencode не запустился (код $MODEL_EXIT)."
+            used_now=$((used_before + 1))
+          elif [ "$MODEL_EXIT" != '0' ]; then
+            if printf '%s' "$stderr_tail" | grep -qiE 'unauthorized|forbidden|401|api.?key|ECONNREFUSED|ENOTFOUND|ETIMEDOUT|getaddrinfo|network|certificate'; then
+              status=infra
+              reason="Ошибка окружения или доступа к модели (код $MODEL_EXIT)."
+            else
+              status=agent_failed
+              reason="Агент завершился с кодом $MODEL_EXIT."
+            fi
+            used_now=$((used_before + 1))
+          elif [ ! -s findings.md ]; then
+            status=agent_failed
+            reason='Агент завершился без результата: findings.md пуст.'
+            used_now=$((used_before + 1))
+          else
+            status=ok
+            reason=''
+            used_now=$((used_before + 1))
+          fi
+          if [ "$status" = 'ok' ]; then
+            findings=$(head -c 60000 findings.md)
+          else
+            findings=$reason
+          fi
+          {
+            printf '## Авторевью — `%s`\n\n' "$status"
+            printf -- '- PR #%s, HEAD `%s`\n' "$PR_NUMBER" "$HEAD_SHA"
+            printf -- '- Бюджет модели на PR: %s из %s запусков по истории прогонов Actions.\n' "$used_now" "$MAX_MODEL_RUNS"
+            printf -- '- Критерии: [REVIEW.md](%s)\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/blob/$HEAD_SHA/REVIEW.md"
+            printf -- '- Прогон: %s\n' "$RUN_URL"
+            printf '\n%s\n' "$findings"
+          } | jq -Rs '{body: .}' | gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input -
+          # Красный прогон для любого статуса, кроме ok — причина видна в списке PR.
+          [ "$status" = 'ok' ]
