@@ -1,0 +1,84 @@
+name: triage
+
+# Автотриаж новых обращений: агент разбирает только что открытый или
+# переоткрытый issue и применяет метку из docs/agents/triage-labels.md.
+# Команда в комментарии не нужна — событие issues, инструкция роли задана
+# в PROMPT (скилл triage в репозитории отсутствует, он живёт на дев-машине).
+on:
+  issues:
+    types: [opened, reopened]
+
+# Ограничение параллельных запусков: триажи идут по одному, начатый прогон
+# не отменяется новым событием (группа общая для репозитория).
+concurrency:
+  group: opencode-triage
+  cancel-in-progress: false
+
+jobs:
+  triage:
+    # Фильтр до работы агента: доверенный автор + не бот + issue ещё не разобран.
+    # Готовые к работе тикеты (ready-for-agent, ready-for-human, wontfix)
+    # не разбираются повторно — их выпускает to-tickets с меткой сразу.
+    if: |
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.issue.author_association) &&
+      github.event.issue.user.type != 'Bot' &&
+      !contains(github.event.issue.labels.*.name, 'ready-for-agent') &&
+      !contains(github.event.issue.labels.*.name, 'ready-for-human') &&
+      !contains(github.event.issue.labels.*.name, 'wontfix')
+    runs-on: ubuntu-latest
+    # Тайм-аут короче интерактивного вызова: триаж — разбор без правок кода.
+    timeout-minutes: 15
+    # Стандартная авторизация OpenCode: чтение репозитория + OIDC-токен для GitHub App.
+    # Токен приложения даёт gh права на метки и комментарии в issues.
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          # Токен checkout не сохраняется — токен приложения агент берёт из
+          # git-конфигурации, которую настраивает шаг Run OpenCode.
+          persist-credentials: false
+
+      - name: Run OpenCode
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Ключ модели только из Secrets репозитория, не в тексте воркфлоу.
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # CI некому ответить на запрос разрешения — те же явные решения,
+          # что и в интерактивном воркфлоу (см. .github/workflows/opencode.yml).
+          OPENCODE_PERMISSION: '{"external_directory": {"*": "allow"}, "doom_loop": "deny", "read": {"*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}'
+          # Для событий issues у действия нет комментария-триггера: prompt обязателен.
+          PROMPT: |
+            Ты выполняешь автоматический триаж нового обращения (issue).
+            Скилл triage в репозитории отсутствует — работай по
+            docs/agents/issue-tracker.md и словарю меток docs/agents/triage-labels.md.
+            Контекст issue (заголовок, тело, комментарии) приложен в <issue>.
+
+            1. Разведка: прочитай GLOSSARY.md и уважай решения из docs/adr/ в
+               затрагиваемой области. Проверь по коду, не реализовано ли уже
+               запрошенное поведение (поиск по доменным понятиям, а не по
+               формулировке обращения): если реализовано — это wontfix.
+            2. Выбери ровно одну метку из словаря: needs-triage, needs-info,
+               ready-for-agent, ready-for-human, wontfix. Полное и проверяемое
+               обращение без неопределённостей — ready-for-agent; не хватает
+               данных для оценки — needs-info с конкретным перечнем вопросов
+               автору; работа, которую должен сделать человек, — ready-for-human.
+            3. Примени метку, токен приложения уже настроен в git:
+               TOKEN=$(git config --get-all http.https://github.com/.extraheader | sed 's/^AUTHORIZATION: basic //' | base64 -d | cut -d: -f2)
+               GH_TOKEN="$TOKEN" gh issue edit <номер issue из контекста> \
+                 --remove-label needs-triage --add-label "<метка>"
+            4. Ответом (он станет комментарием к issue) напиши разбор вида
+               "## Triage: <метка>": что происходит (со ссылками на файлы),
+               почему выбрана именно эта метка, следующий шаг.
+            5. Код не меняй: файлы не редактируй, коммить и пуш не делай,
+               ветки и PR не создавай. С git — только чтение.
+        with:
+          model: opencode/mimo-v2.6-flash-free
+          # Набор команд по умолчанию, задан явно (см. README.md).
+          mentions: /opencode,/oc
+          # Решение для публичного репозитория: сессии агента не публикуются.
+          share: "false"

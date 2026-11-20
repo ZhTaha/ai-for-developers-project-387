@@ -105,6 +105,7 @@ mise run mutation   # проверка, что тест ловит наруше�
 - `.github/workflows/hexlet-check.yml` — автоматические тесты Хекслета; **не удалять и не переименовывать ни его, ни репозиторий**
 - `.github/workflows/release-please.yml` — релизы по Conventional Commits
 - `.github/workflows/opencode.yml` — агент OpenCode по команде из комментария (описание ниже)
+- `.github/workflows/triage.yml` — автотриаж новых обращений без команды (описание ниже)
 
 ### Воркфлоу агента OpenCode (`.github/workflows/opencode.yml`)
 
@@ -120,6 +121,15 @@ mise run mutation   # проверка, что тест ловит наруше�
 - **Результаты (где смотреть ответы)**: ответ агента — комментарий в том же issue или PR, прогоны с логами — на вкладке Actions (воркфлоу `opencode`). Пример: [issue #2](https://github.com/ZhTaha/ai-for-developers-project-387/issues/2) с ответом агента комментарием и [прогон 44601111350](https://github.com/ZhTaha/ai-for-developers-project-387/actions/runs/44601111350) на вкладке Actions. Дальнейшие воркфлоу агента дополняют этот список и это описание.
 
 Проверка после настройки: создайте issue и оставьте комментарий `/oc explain this issue` — ответ появится в обсуждении, прогон будет виден в Actions (живой пример — [issue #2](https://github.com/ZhTaha/ai-for-developers-project-387/issues/2) и [прогон 44601111350](https://github.com/ZhTaha/ai-for-developers-project-387/actions/runs/44601111350)).
+
+### Автотриаж (`.github/workflows/triage.yml`)
+
+- **Событие**: issue открыт или переоткрыт (`issues`, `types: [opened, reopened]`) — команда в комментарии не нужна. У действия `issues` нет комментария-триггера, поэтому инструкция роли задана в env `PROMPT` (обязателен для этого события).
+- **Назначение**: агент разбирает обращение по ролям из [`docs/agents/issue-tracker.md`](docs/agents/issue-tracker.md) и меткам из [`docs/agents/triage-labels.md`](docs/agents/triage-labels.md), применяет одну метку (`needs-triage` снимается) и оставляет разбор комментарием вида `## Triage: <метка>`. Скилл `triage` в репозиторий не переносится — он живёт на дев-машине, его инструкция воспроизведена в `PROMPT`.
+- **Фильтры**: только авторы с ассоциацией `OWNER`/`MEMBER`/`COLLABORATOR` и не бот; issue, уже несущие метку `ready-for-agent`, `ready-for-human` или `wontfix`, пропускаются — тикеты, выпущенные `to-tickets`, автотриаж повторно не разбирает.
+- **Ограничения**: `timeout-minutes: 15` (триаж — разбор без правок кода, тайм-аут короче интерактивного вызова); `concurrency` общий для репозитория (`group: opencode-triage`, `cancel-in-progress: false`): триажи идут по одному, начатый прогон не отменяется.
+- **Права и токен**: как у интерактивного воркфлоу — `contents: read` + `id-token: write`, `persist-credentials: false`; токен приложения для `gh issue edit`/`gh issue comment` агент берёт из git-конфигурации, которую настраивает шаг Run OpenCode. `OPENCODE_PERMISSION` и модель те же, что в `opencode.yml`.
+- **Код не меняется**: `PROMPT` прямо запрещает правки файлов, коммиты, push и PR; чистое рабочее дерево означает, что агент отвечает только комментарием.
 
 ## Окружение
 
