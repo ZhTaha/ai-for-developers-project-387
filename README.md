@@ -106,6 +106,8 @@ mise run mutation   # проверка, что тест ловит наруше�
 - `.github/workflows/release-please.yml` — релизы по Conventional Commits
 - `.github/workflows/opencode.yml` — агент OpenCode по команде из комментария (описание ниже)
 - `.github/workflows/triage.yml` — автотриаж новых обращений без команды (описание ниже)
+- `.github/workflows/pr-review.yml` — авторевью на pull request с лимитом запусков модели (описание ниже)
+- `.github/workflows/browser-check.yml` — независимая браузерная проверка с артефактом trace (описание ниже)
 
 ### Воркфлоу агента OpenCode (`.github/workflows/opencode.yml`)
 
@@ -130,6 +132,27 @@ mise run mutation   # проверка, что тест ловит наруше�
 - **Ограничения**: `timeout-minutes: 15` (триаж — разбор без правок кода, тайм-аут короче интерактивного вызова); `concurrency` общий для репозитория (`group: opencode-triage`, `cancel-in-progress: false`): триажи идут по одному, начатый прогон не отменяется.
 - **Права и токен**: как у интерактивного воркфлоу — `contents: read` + `id-token: write`, `persist-credentials: false`; токен приложения для `gh issue edit`/`gh issue comment` агент берёт из git-конфигурации, которую настраивает шаг Run OpenCode. `OPENCODE_PERMISSION` и модель те же, что в `opencode.yml`.
 - **Код не меняется**: `prompt` прямо запрещает правки файлов, коммиты, push и PR; чистое рабочее дерево означает, что агент отвечает только комментарием.
+
+### Авторевью PR (`.github/workflows/pr-review.yml`)
+
+- **Событие**: `pull_request` (`types: [opened, synchronize, reopened, ready_for_review]`) — команда в комментарии не нужна.
+- **Назначение**: прогон читает критерии из [`REVIEW.md`](REVIEW.md), передаёт их вместе с диффом PR в модель обычным CLI (`opencode run`, не action-хендлер) и публикует итог комментарием в PR — шагом без модели. Формат замечания (файл, строка, условие ошибки, последствие) и правило «дефектов нет — сказать прямо» заданы в `REVIEW.md`.
+- **Лимит запусков на PR**: `MAX_MODEL_RUNS: "3"`. Проверяется кодом **до** вызова модели по истории прогонов Actions (наличие шага `Run model` в задании `review` этих прогонов): источник бюджета — серверная история запусков, которую токен агента переписать не может. При исчерпании публикуется статус `limit_exhausted` без запуска модели. Итоговый статус прогона — один из `ok`, `limit_exhausted`, `timeout`, `infra`, `agent_failed` — всегда публикуется шагом без модели.
+- **Фильтр доверенных**: не draft, ветка PR из этого репозитория (не fork), база `main`, автор `OWNER`/`MEMBER`/`COLLABORATOR`. Остальные PR пропускаются целиком и секрет модели не получают; `pull_request_target` с исполнением кодом PR не используется.
+- **Права**: без OIDC (`id-token` не запрашивается) — `contents: read`, `issues: read`, `actions: read` (подсчёт бюджета), `checks: read`, `statuses: read`, `pull-requests: write` (публикация итога). Ключ `OPENCODE_API_KEY` берётся из Secrets, у checkout `persist-credentials: false` — у модели нет токена репозитория.
+- **Ограничения**: `timeout-minutes: 20` у задания, шаг модели дополнительно ограничен `timeout` на 10 минут; `concurrency` группирует прогоны по номеру PR, `cancel-in-progress: true` отменяет устаревший прогон при новом push.
+- **Отказы**: превышение лимита шага (коды 124/137) → `timeout`; ошибка окружения или доступа к модели → `infra`; агент завершился без результата → `agent_failed`; исчерпание бюджета → `limit_exhausted`; успех → `ok` с текстом замечаний из `findings.md`.
+
+### Браузерная проверка с артефактом (`.github/workflows/browser-check.yml`)
+
+- **Событие**: `pull_request`, отдельно от `ci.yml` и без секретов.
+- **Артефакт**: Playwright с `--trace on` (скриншоты — при падении), артефакт именуется `browser-<head-sha>` и содержит файл `head-sha.txt` с точным `github.event.pull_request.head.sha` — его сверяют с head ветки PR.
+- **Ограничения**: `timeout-minutes: 20`; `concurrency` по номеру PR с отменой устаревших прогонов.
+
+### Шаблон PR и критерии ревью
+
+- [`.github/pull_request_template.md`](.github/pull_request_template.md) — разделы «Проверки» (команды, ссылки на прогоны, SHA), «Риск», «Способ отката»: заполняются при создании PR.
+- [`REVIEW.md`](REVIEW.md) — критерии ревью: правила бронирования, контракт и сборка, поведение интерфейса и формат замечания; их читают авторевью и человек-ревьюер.
 
 ## Окружение
 
