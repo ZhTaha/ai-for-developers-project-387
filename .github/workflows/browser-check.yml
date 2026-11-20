@@ -1,0 +1,45 @@
+name: Browser check
+
+# Независимая браузерная проверка (отдельно от ci.yml): Playwright со trace,
+# артефакт именуется точным head-sha PR — его сверяют с head ветки PR.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: browser-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: jdx/mise-action@v2
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+
+      - name: Run browser tests with trace
+        run: npx playwright test --trace on --screenshot only-on-failure
+
+      - name: Record head SHA
+        if: always()
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          mkdir -p artifacts
+          printf '%s\n' "$HEAD_SHA" > artifacts/head-sha.txt
+          cp -r test-results artifacts/ 2>/dev/null || true
+          cp -r playwright-report artifacts/ 2>/dev/null || true
+          echo "head-sha: $HEAD_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-${{ github.event.pull_request.head.sha }}
+          path: artifacts/
+          if-no-files-found: warn
