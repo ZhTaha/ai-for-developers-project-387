@@ -29,7 +29,10 @@ jobs:
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) &&
       github.event.comment.user.type != 'Bot'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # Лимит покрывает TDD-итерации агента: установка окружения уже в шаге
+    # Setup environment, но прогон тестов + правки занимают 15-20 минут
+    # (тикет #8 в 20-минутный лимит не уложился — прогон 44777178283).
+    timeout-minutes: 45
     # Стандартная авторизация OpenCode: чтение репозитория + OIDC-токен для GitHub App.
     # Агент действует правами приложения; push выполняется токеном приложения.
     permissions:
@@ -43,6 +46,13 @@ jobs:
           fetch-depth: 1
           # Токен checkout не сохраняется — push делает GitHub App, не GITHUB_TOKEN.
           persist-credentials: false
+
+      # Окружение готовится до агента (как в ci.yml): иначе агент тратит
+      # минуты раннера на mise install / npm ci / playwright install сам.
+      - name: Setup environment
+        uses: jdx/mise-action@v2
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
 
       - name: Run OpenCode
         uses: anomalyco/opencode/github@latest
