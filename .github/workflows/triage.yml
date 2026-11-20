@@ -51,8 +51,16 @@ jobs:
           # CI некому ответить на запрос разрешения — те же явные решения,
           # что и в интерактивном воркфлоу (см. .github/workflows/opencode.yml).
           OPENCODE_PERMISSION: '{"external_directory": {"*": "allow"}, "doom_loop": "deny", "read": {"*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}'
-          # Для событий issues у действия нет комментария-триггера: prompt обязателен.
-          PROMPT: |
+        with:
+          model: opencode/mimo-v2.6-flash-free
+          # Набор команд по умолчанию, задан явно (см. README.md).
+          mentions: /opencode,/oc
+          # Решение для публичного репозитория: сессии агента не публикуются.
+          share: "false"
+          # Для событий issues у действия нет комментария-триггера, поэтому
+          # prompt обязателен. Внутренний шаг действия передаёт его в env PROMPT,
+          # поэтому текст живёт в input, а не в env шага.
+          prompt: |
             Ты выполняешь автоматический триаж нового обращения (issue).
             Скилл triage в репозитории отсутствует — работай по
             docs/agents/issue-tracker.md и словарю меток docs/agents/triage-labels.md.
@@ -76,9 +84,3 @@ jobs:
                почему выбрана именно эта метка, следующий шаг.
             5. Код не меняй: файлы не редактируй, коммить и пуш не делай,
                ветки и PR не создавай. С git — только чтение.
-        with:
-          model: opencode/mimo-v2.6-flash-free
-          # Набор команд по умолчанию, задан явно (см. README.md).
-          mentions: /opencode,/oc
-          # Решение для публичного репозитория: сессии агента не публикуются.
-          share: "false"
