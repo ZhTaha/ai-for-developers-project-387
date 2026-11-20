@@ -3,6 +3,12 @@ import { CalendarApiClient } from './generated-api.js';
 const client = new CalendarApiClient();
 const $ = (selector) => document.querySelector(selector);
 
+const escapeHtml = (value) =>
+  String(value).replace(
+    /[&<>"']/g,
+    (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char],
+  );
+
 let selectedSlot = null;
 let eventTypes = [];
 
@@ -153,7 +159,8 @@ async function loadBookings() {
     ? bookings
         .map((booking) => {
           const type = eventTypes.find((eventType) => eventType.id === booking.eventTypeId);
-          return `<li>${booking.slotStart.replace('T', ' ')} — ${type ? type.name : ''} — ${booking.guestName} (${booking.guestEmail}) <button data-cancel="${booking.id}">Отменить</button></li>`;
+          const topic = booking.comment ? ` — ${escapeHtml(booking.comment)}` : '';
+          return `<li>${booking.slotStart.replace('T', ' ')} — ${type ? type.name : ''} — ${booking.guestName} (${booking.guestEmail})${topic} <button data-cancel="${booking.id}">Отменить</button></li>`;
         })
         .join('')
     : '<li>Броней пока нет</li>';
