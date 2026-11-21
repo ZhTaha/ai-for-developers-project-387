@@ -1,5 +1,34 @@
 const { test, expect } = require('@playwright/test');
 
+/** Дата YYYY-MM-DD через n дней (календарная арифметика по UTC) */
+function addDays(iso, days) {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/** День недели ISO: 1 = понедельник … 7 = воскресенье */
+function weekdayOf(iso) {
+  const [y, m, d] = iso.split('-').map(Number);
+  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return day === 0 ? 7 : day;
+}
+
+/**
+ * Ближайшая дата для записи: завтра и позже (в пределах окна записи),
+ * с днём недели из Availability.
+ * min (сегодня) не берём: в выходной день слотов нет вообще, а в будний
+ * прошедшие слоты зависят от времени запуска — тест стал бы невоспроизводимым.
+ */
+async function pickBookableDate(page, request) {
+  const availability = await (await request.get('/api/availability')).json();
+  const min = await page.locator('#guest-date').getAttribute('min');
+  const max = await page.locator('#guest-date').getAttribute('max');
+  for (let iso = addDays(min, 1); iso <= max; iso = addDays(iso, 1)) {
+    if (availability.weekdays.includes(weekdayOf(iso))) return iso;
+  }
+  throw new Error(`в окне ${min}…${max} нет дней Availability (${availability.weekdays.join(', ')})`);
+}
+
 test('Пустой список броней показывает «Броней пока нет»', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('link', { name: 'Записаться' }).click();
@@ -9,7 +38,7 @@ test('Пустой список броней показывает «Броней
   await expect(page.locator('#booking-list')).toContainText('Броней пока нет');
 });
 
-test('Строка Брони без темы совпадает со строкой до изменения, тема из пробелов не выводится', async ({ page }) => {
+test('Строка Брони без темы совпадает со строкой до изменения, тема из пробелов не выводится', async ({ page, request }) => {
   await page.goto('/');
   await page.getByRole('link', { name: 'Записаться' }).click();
   await expect(page).toHaveURL(/\/book$/);
@@ -20,8 +49,7 @@ test('Строка Брони без темы совпадает со строк
 
   const date = page.locator('#guest-date');
   await expect(date).toHaveAttribute('min', /\d{4}-\d{2}-\d{2}/);
-  const min = await date.getAttribute('min');
-  await date.fill(min);
+  await date.fill(await pickBookableDate(page, request));
   await date.dispatchEvent('change');
 
   const slotWithSpaces = page.locator('#guest-slots button:not([disabled])').first();
@@ -59,7 +87,7 @@ test('Строка Брони без темы совпадает со строк
   expect(await noTopicRow.textContent()).toBe(expectedRow(slotWithoutTopicStart, 'ГостьБезТемы', 'notopic@example.com'));
 });
 
-test('Guest видит описание типа, выбирает слот и получает подтверждение на настоящем сервере', async ({ page }) => {
+test('Guest видит описание типа, выбирает слот и получает подтверждение на настоящем сервере', async ({ page, request }) => {
   await page.goto('/');
   await page.getByRole('link', { name: 'Записаться' }).click();
   await expect(page).toHaveURL(/\/book$/);
@@ -69,8 +97,8 @@ test('Guest видит описание типа, выбирает слот и �
   await expect(eventType).toContainText('Короткий звонок для знакомства');
 
   const date = page.locator('#guest-date');
-  const min = await date.getAttribute('min');
-  await date.fill(min);
+  await expect(date).toHaveAttribute('min', /\d{4}-\d{2}-\d{2}/);
+  await date.fill(await pickBookableDate(page, request));
   await date.dispatchEvent('change');
 
   const slot = page.locator('#guest-slots button:not([disabled])').first();
@@ -83,10 +111,16 @@ test('Guest видит описание типа, выбирает слот и �
   await expect(page.locator('#guest-result')).toContainText('Записан на');
 
   await page.reload();
+  // После перезагрузки страница возвращает «сегодня»: ждём установки min
+  // (атрибут ставится асинхронно в init) и восстанавливаем дату, иначе слот
+  // этой даты не отрисован и проверка блокировки не находит его.
+  await expect(date).toHaveAttribute('min', /\d{4}-\d{2}-\d{2}/);
+  await date.fill(await pickBookableDate(page, request));
+  await date.dispatchEvent('change');
   await expect(page.locator(`[data-start="${slotStart}"]`)).toBeDisabled();
 });
 
-test('Тема разговора видна в строке Брони у владельца и не ломает список', async ({ page }) => {
+test('Тема разговора видна в строке Брони у владельца и не ломает список', async ({ page, request }) => {
   const topic = 'Обсудить <b>интеграцию</b> & "планы"';
 
   await page.goto('/');
@@ -96,8 +130,7 @@ test('Тема разговора видна в строке Брони у вл�
   const date = page.locator('#guest-date');
   await expect(page.locator('#guest-event-type option')).not.toHaveCount(0);
   await expect(date).toHaveAttribute('min', /\d{4}-\d{2}-\d{2}/);
-  const min = await date.getAttribute('min');
-  await date.fill(min);
+  await date.fill(await pickBookableDate(page, request));
   await date.dispatchEvent('change');
 
   const slotWithTopic = page.locator('#guest-slots button:not([disabled])').first();
