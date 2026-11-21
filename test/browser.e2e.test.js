@@ -97,6 +97,7 @@ test('Guest видит описание типа, выбирает слот и �
   await expect(eventType).toContainText('Короткий звонок для знакомства');
 
   const date = page.locator('#guest-date');
+  await expect(date).toHaveAttribute('min', /\d{4}-\d{2}-\d{2}/);
   await date.fill(await pickBookableDate(page, request));
   await date.dispatchEvent('change');
 
@@ -110,8 +111,10 @@ test('Guest видит описание типа, выбирает слот и �
   await expect(page.locator('#guest-result')).toContainText('Записан на');
 
   await page.reload();
-  // После перезагрузки страница возвращает «сегодня» — восстанавливаем дату,
-  // иначе слот этой даты не отрисован и проверка блокировки не находит его.
+  // После перезагрузки страница возвращает «сегодня»: ждём установки min
+  // (атрибут ставится асинхронно в init) и восстанавливаем дату, иначе слот
+  // этой даты не отрисован и проверка блокировки не находит его.
+  await expect(date).toHaveAttribute('min', /\d{4}-\d{2}-\d{2}/);
   await date.fill(await pickBookableDate(page, request));
   await date.dispatchEvent('change');
   await expect(page.locator(`[data-start="${slotStart}"]`)).toBeDisabled();
