@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.1](https://github.com/ZhTaha/ai-for-developers-project-387/compare/ai-for-developers-project-387-v1.1.0...ai-for-developers-project-387-v1.1.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* завершающая строка heredoc учебного отчёта на отступе блока YAML ([#21](https://github.com/ZhTaha/ai-for-developers-project-387/issues/21)) ([112b029](https://github.com/ZhTaha/ai-for-developers-project-387/commit/112b029ae5606fd0ce7510bf04e8c90f4ee9bca0))
+
 ## [1.1.0](https://github.com/ZhTaha/ai-for-developers-project-387/compare/ai-for-developers-project-387-v1.0.1...ai-for-developers-project-387-v1.1.0) (2026-11-22)
 
 
