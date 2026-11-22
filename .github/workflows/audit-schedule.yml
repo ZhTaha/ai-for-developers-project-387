@@ -63,6 +63,9 @@ jobs:
           if [ "$REPORT_SOURCE" = 'training' ]; then
             # Учебный отчёт генерируется шагом и в репозиторий не коммитится:
             # явно обозначенная находка для демонстрации создания issue.
+            # Завершающая строка JSON — ровно на отступе блока YAML (10
+            # пробелов): после разбора YAML она окажется в колонке 0, иначе
+            # heredoc не завершится и шаг упадёт с syntax error.
             cat > reports/training-report.json <<'JSON'
             {
               "training": true,
@@ -84,7 +87,7 @@ jobs:
                 }
               }
             }
-            JSON
+          JSON
             echo "Учебный отчёт собран: reports/training-report.json"
             exit 0
           fi
