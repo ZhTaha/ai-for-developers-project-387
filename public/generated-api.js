@@ -54,6 +54,7 @@
  * @property {string} start
  * @property {string} end
  * @property {boolean} booked
+ * @property {boolean} past
  */
 
 export class ApiError extends Error {

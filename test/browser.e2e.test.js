@@ -120,6 +120,32 @@ test('Guest видит описание типа, выбирает слот и �
   await expect(page.locator(`[data-start="${slotStart}"]`)).toBeDisabled();
 });
 
+test('Прошедшие слоты сегодняшнего дня заблокированы на странице записи', async ({ page, request }) => {
+  // Расширяем расписание на весь день: слот 00:00 прошёл при любом времени запуска.
+  const original = await (await request.get('/api/availability')).json();
+  const fullDay = { weekdays: [1, 2, 3, 4, 5, 6, 7], startTime: '00:00', endTime: '23:59', timeZone: original.timeZone };
+  await request.put('/api/availability', { data: fullDay });
+
+  try {
+    await page.goto('/');
+    await page.getByRole('link', { name: 'Записаться' }).click();
+    await expect(page).toHaveURL(/\/book$/);
+
+    const date = page.locator('#guest-date');
+    await expect(date).toHaveAttribute('min', /\d{4}-\d{2}-\d{2}/);
+    const min = await date.getAttribute('min');
+    await date.fill(min);
+    await date.dispatchEvent('change');
+
+    const first = page.locator('#guest-slots button').first();
+    await expect(first).toHaveText(/^00:00/);
+    await expect(first).toBeDisabled();
+    await expect(first).toHaveClass(/past/);
+  } finally {
+    await request.put('/api/availability', { data: original });
+  }
+});
+
 test('Тема разговора видна в строке Брони у владельца и не ломает список', async ({ page, request }) => {
   const topic = 'Обсудить <b>интеграцию</b> & "планы"';
 

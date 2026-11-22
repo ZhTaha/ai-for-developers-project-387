@@ -70,6 +70,30 @@ function dateInTimeZone(timeZone, now = new Date()) {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
+/** Настенное время момента now в поясе владельца: «YYYY-MM-DDTHH:MM» */
+function wallClockInTimeZone(timeZone, now) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(now);
+  const get = (type) => parts.find((part) => part.type === type).value;
+  return `${get('year')}-${get('month')}-${get('day')}T${get('hour')}:${get('minute')}`;
+}
+
+/**
+ * Слот «прошёл», если его начало ≤ текущего момента, переведённого в часовой
+ * пояс владельца. Сравнение — по настенному времени «YYYY-MM-DDTHH:MM»;
+ * слот, начавшийся ровно сейчас, считается прошедшим.
+ */
+function isSlotPast(slotStart, timeZone, now = new Date()) {
+  return String(slotStart) <= wallClockInTimeZone(timeZone, now);
+}
+
 function isValidTimeZone(timeZone) {
   try {
     dateInTimeZone(timeZone);
@@ -113,9 +137,10 @@ function weekdayOf(dateStr) {
  * @param {Array<{slotStart: string, durationMinutes?: number}>} bookings занятые интервалы
  * @param {number} durationMinutes длительность выбранного типа встречи
  * @param {number} [slotMinutes] шаг сетки (по умолчанию 15)
- * @returns {Array<{start: string, end: string, booked: boolean}>}
+ * @param {Date} [now] текущий момент для признака past (по умолчанию текущее время)
+ * @returns {Array<{start: string, end: string, booked: boolean, past: boolean}>}
  */
-function slotsForDate(availability, date, bookings, durationMinutes, slotMinutes = DEFAULT_SLOT_MINUTES) {
+function slotsForDate(availability, date, bookings, durationMinutes, slotMinutes = DEFAULT_SLOT_MINUTES, now = new Date()) {
   const weekday = weekdayOf(date);
   if (!availability.weekdays.includes(weekday)) return [];
 
@@ -134,15 +159,16 @@ function slotsForDate(availability, date, bookings, durationMinutes, slotMinutes
       start: `${date}T${time}`,
       end: `${date}T${end}`,
       booked: intervals.some((iv) => overlaps(t, durationMinutes, iv.start, iv.duration)),
+      past: isSlotPast(`${date}T${time}`, availability.timeZone, now),
     });
   }
   return slots;
 }
 
 /**
- * Проверка, что slotStart бронируем: в 14-дневном окне, на сетке, внутри
- * доступности и без пересечения с бронями на всю длительность EventType.
- * Встреча может начаться в последнем интервале окна и выйти за endTime.
+ * Проверка, что slotStart бронируем: в 14-дневном окне, ещё не прошло, на
+ * сетке, внутри доступности и без пересечения с бронями на всю длительность
+ * EventType. Встреча может начаться в последнем интервале окна и выйти за endTime.
  */
 function isSlotBookable(availability, slotStart, durationMinutes, bookings, slotMinutes = DEFAULT_SLOT_MINUTES, now = new Date()) {
   const { date, time } = parseSlotStart(slotStart);
@@ -155,6 +181,7 @@ function isSlotBookable(availability, slotStart, durationMinutes, bookings, slot
   const endMin = parseHHMM(availability.endTime);
   if (!availability.weekdays.includes(weekdayOf(date))) return false;
   if (!isDateWithinBookingWindow(date, availability.timeZone, now)) return false;
+  if (isSlotPast(slotStart, availability.timeZone, now)) return false;
   if (t < startMin || t >= endMin) return false;
 
   const intervals = busyIntervalsForDate(bookings, date);

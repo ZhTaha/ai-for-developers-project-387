@@ -131,7 +131,7 @@ async function handleApi(req, res, url) {
       return json(res, 400, { error: 'slotStart должен быть на 15-минутной сетке' });
     }
     if (!calendar.isSlotBookable(db.availability, slotStart, eventType.durationMinutes, db.bookings, SLOT_MINUTES)) {
-      return json(res, 409, { error: 'слот занят, вне расписания или вне 14-дневного окна записи' });
+      return json(res, 409, { error: 'слот прошёл, занят, вне расписания или вне 14-дневного окна записи' });
     }
     const booking = { id: uuid(), slotStart, eventTypeId, guestName, guestEmail, comment: comment || '', durationMinutes: eventType.durationMinutes };
     db.bookings.push(booking);

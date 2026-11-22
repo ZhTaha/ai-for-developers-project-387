@@ -46,11 +46,13 @@ model Booking {
   comment: string;
 }
 
-/** Старт, который доступен или занят для выбранного EventType. */
+/** Старт, который доступен, занят или уже прошёл для выбранного EventType. */
 model Slot {
   start: string;
   end: string;
   booked: boolean;
+  /** Слот уже начался в часовом поясе Владельца: показывается заблокированным. */
+  past: boolean;
 }
 
 model CreateBooking {
@@ -75,7 +77,7 @@ model NotFound {
   @body body: ErrorBody;
 }
 
-/** Некорректное окно бронирования или пересечение с существующей бронью. */
+/** Некорректное окно бронирования, прошедший слот или пересечение с существующей бронью. */
 model Conflict {
   @statusCode statusCode: 409;
   @body body: ErrorBody;
