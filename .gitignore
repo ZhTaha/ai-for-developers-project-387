@@ -5,3 +5,5 @@ data.json
 .DS_Store
 typespec/generated/
 test-results/
+# Отчёты аудита (Lighthouse и служебные файлы) — не коммитятся
+reports/

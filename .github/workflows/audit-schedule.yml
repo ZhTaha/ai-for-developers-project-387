@@ -1,0 +1,197 @@
+name: Page audit
+
+# Регулярный аудит приложения: расписание и ручной запуск в одном файле.
+# Инструкции агенту нет комментария-триггера — она задана input prompt
+# (как в triage.yml для события issues).
+# cron у GitHub Actions считается в UTC: 17 3 * * * = 06:17 по Москве (UTC+3).
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      report_source:
+        description: 'Источник отчёта: живой Lighthouse или учебный отчёт с находкой'
+        type: choice
+        options:
+          - live
+          - training
+        default: live
+
+# Стандартная авторизация OpenCode: чтение репозитория + OIDC-токен для
+# GitHub App (токен приложения даёт gh права на создание issues).
+# Альтернатива — use_github_token: true с GITHUB_TOKEN и issues: write (см. README).
+permissions:
+  contents: read
+  id-token: write
+
+# Параллельные аудиты ограничены: прогоны идут по одному, начатый
+# прогон не отменяется новым (отмена по расписанию недопустима).
+concurrency:
+  group: page-audit
+  cancel-in-progress: false
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    # Тайм-аут покрывает сбор отчёта (включая cold start приложения)
+    # и работу агента с отчётом.
+    timeout-minutes: 30
+    env:
+      # Адрес приложения — переменная репозитория (Settings → Variables),
+      # fallback — прежний рабочий адрес приложения из первого проекта.
+      APP_URL: ${{ vars.APP_URL || 'https://call-calendar-6ymh.onrender.com' }}
+      # Для schedule выбора нет — по умолчанию живой отчёт.
+      REPORT_SOURCE: ${{ inputs.report_source || 'live' }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          # Токен checkout не сохраняется — токен приложения агент берёт
+          # из git-конфигурации, которую настраивает действие OpenCode.
+          persist-credentials: false
+
+      # Исходные данные аудита сохраняются артефактом ДО работы агента:
+      # срок хранения артефактов ограничен, поэтому текст находок агент
+      # дублирует в issue, а не только ссылается на артефакт.
+      - name: Collect Lighthouse report
+        run: |
+          set -uo pipefail
+          mkdir -p reports
+          if [ "$REPORT_SOURCE" = 'training' ]; then
+            # Учебный отчёт генерируется шагом и в репозиторий не коммитится:
+            # явно обозначенная находка для демонстрации создания issue.
+            cat > reports/training-report.json <<'JSON'
+            {
+              "training": true,
+              "description": "УЧЕБНЫЙ ОТЧЁТ. Синтетический отчёт для демонстрации воркфлоу аудита, не результат проверки работающего приложения.",
+              "finalUrl": "https://call-calendar-6ymh.onrender.com/book",
+              "lighthouseVersion": "training-fixture",
+              "categories": {
+                "performance": { "score": 0.74 },
+                "accessibility": { "score": 0.68 },
+                "best-practices": { "score": 0.92 },
+                "seo": { "score": 1.0 }
+              },
+              "audits": {
+                "button-name": {
+                  "id": "button-name",
+                  "title": "Кнопки имеют доступное имя",
+                  "description": "УЧЕБНАЯ НАХОДКА: кнопка выбора слота на странице /book не имеет доступного имени — по данным учебного отчёта её подпись отсутствует.",
+                  "score": 0
+                }
+              }
+            }
+            JSON
+            echo "Учебный отчёт собран: reports/training-report.json"
+            exit 0
+          fi
+
+          # Живой отчёт: приложение на бесплатном хостинге засыпает —
+          # пробуем несколько раз с паузой на cold start.
+          reachable=0
+          for attempt in 1 2 3; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 90 "$APP_URL" || true)
+            echo "попытка $attempt: HTTP $code"
+            if [ "$code" != '000' ] && [ "$code" != '404' ] && [ "$code" != '502' ] && [ "$code" != '503' ]; then
+              reachable=1
+              break
+            fi
+            sleep 20
+          done
+
+          if [ "$reachable" != '1' ]; then
+            # Отсутствие данных — это не результат аудита: недоступность
+            # приложения не подтверждает, что дефекты исправлены.
+            {
+              echo '# Нет данных'
+              echo
+              echo "Приложение $APP_URL не ответило за три попытки — отчёт Lighthouse не собран."
+              echo 'Отсутствие данных не подтверждает, что найденные ранее дефекты исправлены.'
+            } > reports/no-data.md
+            echo '::warning::приложение недоступно, отчёт не собран'
+            exit 0
+          fi
+
+          npx --yes lighthouse@13 "$APP_URL" \
+            --output=json \
+            --output-path=reports/lighthouse.json \
+            --quiet \
+            --chrome-flags='--headless=new --no-sandbox'
+          echo "Живой отчёт собран: reports/lighthouse.json"
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: audit-report-${{ github.run_id }}
+          path: reports/
+          if-no-files-found: warn
+
+      - name: Run OpenCode
+        uses: anomalyco/opencode/github@latest
+        env:
+          # Ключ модели только из Secrets репозитория, не в тексте воркфлоу.
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+          # CI некому ответить на запрос разрешения — те же явные решения,
+          # что и в остальных воркфлоу агента (см. .github/workflows/opencode.yml).
+          OPENCODE_PERMISSION: '{"external_directory": {"*": "allow"}, "doom_loop": "deny", "read": {"*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}'
+        with:
+          model: opencode/mimo-v2.6-flash-free
+          # Набор команд по умолчанию, задан явно (см. README.md).
+          mentions: /opencode,/oc
+          # Решение для публичного репозитория: сессии агента не публикуются.
+          share: "false"
+          # У события schedule нет комментария-триггера — инструкция в prompt.
+          prompt: |
+            Ты выполняешь регулярный аудит приложения по отчёту из каталога
+            reports/ (файлы сохранены артефактом этого прогона). Рабочий
+            каталог — репозиторий проекта.
+
+            1. Прочитай все файлы в reports/: lighthouse.json (живой отчёт),
+               training-report.json (учебный, поле training: true) или
+               no-data.md (отчёт не собран).
+            2. Если reports/no-data.md: напиши вывод «Нет данных» — приложение
+               не ответило, отчёт не собран, и прямо укажи: отсутствие данных
+               не подтверждает, что дефекты исправлены. Новых issue не создавай.
+            3. Разбери отчёт и сформулируй находки: проблема, предлагаемое
+               действие. У каждой находки — короткий стабильный идентификатор
+               (slug темы, одинаковый при повторных запусках) и маркер
+               <!-- audit-finding: <id> --> в теле issue. Если находок нет —
+               напиши «Новых находок нет», issue не создавай.
+            4. Перед созданием issue ОБЯЗАТЕЛЬНО найди существующие задачи по
+               той же проблеме, токен приложения уже настроен в git:
+               TOKEN=$(git config --get-all http.https://github.com/.extraheader | sed 's/^AUTHORIZATION: basic //' | base64 -d | cut -d: -f2)
+               GH_TOKEN="$TOKEN" gh issue list --state all --limit 200 \
+                 --json number,title,labels,body
+               Ищи сначала по маркеру audit-finding: <id>, затем по ключевым
+               словам проблемы. Если задача уже есть и новых сведений нет —
+               НЕ создавай issue и не оставляй одинаковый комментарий: только
+               вывод («дубль, задача #N»).
+            5. Новая находка → создай отдельный issue командой
+               GH_TOKEN="$TOKEN" gh issue create: в заголовке — проблема
+               кратко (для учебного отчёта — префикс «[учебный]»), в теле —
+               проблема, предлагаемое действие, текст находки из отчёта,
+               адрес проверяемого приложения, ссылка на прогон RUN_URL
+               (переменная окружения), пометка, что артефакт отчёта временный
+               и текст находки продублирован в теле, и маркер
+               <!-- audit-finding: <id> -->. Метки: needs-triage, а для
+               учебного отчёта дополнительно training. Учебный issue — не
+               подтверждённый дефект приложения: это демонстрация создания
+               задачи по находке.
+            6. Расширение: если находка повторяет уже исправленную проблему —
+               найди закрытую задачу по этой проблеме и PR, её исправивший
+               (GH_TOKEN="$TOKEN" gh issue list --state closed, gh pr list
+               --state all), и создай новый issue с пометкой о повторном
+               появлении и ссылками на прежнюю задачу и исправляющий PR.
+               Состояние «нет данных» к повторному появлению не относится и
+               исправление не подтверждает.
+            7. Сохрани вывод (находки или их отсутствие, что создано или почему
+               не создано, ссылка на прогон): допиши его в $GITHUB_STEP_SUMMARY
+               (>>) и напечатай в stdout — в логах прогона оно должно быть
+               доступно без чтения артефакта.
+            8. Код не меняй: файлы не редактируй, ничего не коммить и не
+               пушь, PR не создавай. Каталог reports/ в .gitignore — отчёты
+               в коммиты не попадают.
