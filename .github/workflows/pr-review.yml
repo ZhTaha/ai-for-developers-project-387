@@ -113,8 +113,8 @@ jobs:
     if: needs.budget.outputs.decision == 'run'
     runs-on: ubuntu-latest
     # Тайм-аут задания: подготовка окружения, модель (шаг модели ограничен
-    # отдельно — 10 минут) и публикация итога.
-    timeout-minutes: 20
+    # отдельно — 15 минут) и публикация итога.
+    timeout-minutes: 25
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
@@ -172,7 +172,7 @@ jobs:
           OPENCODE_PERMISSION: '{"external_directory": {"*": "allow"}, "doom_loop": "deny", "read": {"*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}'
         run: |
           set +e
-          timeout --signal=TERM --kill-after=30s 600 opencode run \
+          timeout --signal=TERM --kill-after=30s 900 opencode run \
             --auto \
             --model "$MODEL" \
             --file review-prompt.md \
@@ -210,7 +210,7 @@ jobs:
             used_now=$used_before
           elif [ "$MODEL_EXIT" = '124' ] || [ "$MODEL_EXIT" = '137' ]; then
             status=timeout
-            reason='Модель не уложилась в лимит шага (10 минут).'
+            reason='Модель не уложилась в лимит шага (15 минут).'
             used_now=$((used_before + 1))
           elif [ "$MODEL_EXIT" = '126' ] || [ "$MODEL_EXIT" = '127' ]; then
             status=infra
