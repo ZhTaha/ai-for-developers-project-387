@@ -159,6 +159,38 @@ test('неверная сетка, прошлый день и несуществ
   assert.equal(missingType.status, 404);
 });
 
+test('прошедшие слоты сегодняшнего дня помечены past, а запись на них отклоняется', async () => {
+  // Расписание расширяем на весь день: первый слот 00:00 прошёл при любом времени запуска.
+  const fullDay = { weekdays: [1, 2, 3, 4, 5, 6, 7], startTime: '00:00', endTime: '23:59', timeZone: 'Asia/Almaty' };
+  const updated = await request('/api/availability', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(fullDay),
+  });
+  assert.equal(updated.status, 200);
+
+  const [eventType] = await (await request('/api/event-types')).json();
+  const today = dateInAlmaty();
+
+  const slots = await request(`/api/slots?date=${today}&eventTypeId=${eventType.id}`);
+  assert.equal(slots.status, 200);
+  const body = await slots.json();
+  const first = body.find((slot) => slot.start.endsWith('T00:00'));
+  assert.equal(first.past, true);
+
+  const tomorrow = addDays(today, 1);
+  const futureSlots = await (await request(`/api/slots?date=${tomorrow}&eventTypeId=${eventType.id}`)).json();
+  assert.equal(futureSlots.length > 0, true);
+  assert.equal(futureSlots.every((slot) => slot.past === false), true);
+
+  const rejected = await createBooking(eventType.id, `${today}T00:00`, 'Прошлое');
+  assert.equal(rejected.status, 409);
+  assert.match((await rejected.json()).error, /прошёл/);
+
+  const accepted = await createBooking(eventType.id, `${tomorrow}T00:00`, 'Будущее');
+  assert.equal(accepted.status, 201);
+});
+
 test('владелец обновляет доступность вместе с часовым поясом', async () => {
   const response = await request('/api/availability', {
     method: 'PUT',

@@ -115,7 +115,9 @@ async function loadSlots() {
       ? slots
           .map((slot) => {
             const label = `${slot.start.slice(11, 16)}–${slot.end.slice(11, 16)}`;
-            return `<button class="slot ${slot.booked ? 'booked' : ''}" ${slot.booked ? 'disabled' : ''} data-start="${slot.start}">${label}</button>`;
+            const blocked = slot.booked || slot.past;
+            const classes = ['slot', slot.booked ? 'booked' : '', slot.past ? 'past' : ''].filter(Boolean).join(' ');
+            return `<button class="${classes}" ${blocked ? 'disabled' : ''} data-start="${slot.start}">${label}</button>`;
           })
           .join('')
       : '<p>Нет слотов на этот день</p>';

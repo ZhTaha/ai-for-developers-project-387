@@ -71,14 +71,25 @@ test('isSlotBookable: slotStart вне 15-минутной сетки — нел
 });
 
 test('isSlotBookable: пересекающаяся бронь блокирует слот', () => {
+  // NOW до 10:00 по Алматы: слоты в будущем, блокировка — только из-за пересечения.
+  const before = new Date('2026-11-16T04:00:00Z');
   const bookings = [{ slotStart: '2026-11-16T10:00', durationMinutes: 60 }];
-  assert.equal(calendar.isSlotBookable(AVAIL, '2026-11-16T10:30', 15, bookings, 15, NOW), false);
-  assert.equal(calendar.isSlotBookable(AVAIL, '2026-11-16T11:00', 15, bookings, 15, NOW), true);
+  assert.equal(calendar.isSlotBookable(AVAIL, '2026-11-16T10:30', 15, bookings, 15, before), false);
+  assert.equal(calendar.isSlotBookable(AVAIL, '2026-11-16T11:00', 15, bookings, 15, before), true);
 });
 
 test('длинная новая бронь пересекает уже существующую короткую', () => {
   const bookings = [{ slotStart: '2026-11-16T10:30', durationMinutes: 30 }];
   assert.equal(calendar.isSlotBookable(AVAIL, '2026-11-16T10:00', 60, bookings, 15, NOW), false);
+});
+
+test('слоты, начавшиеся к текущему моменту, помечены past в поясе Владельца', () => {
+  // NOW = 2026-11-16T08:00Z = 13:00 в Asia/Almaty (пояс UTC+5)
+  const slots = calendar.slotsForDate(AVAIL, '2026-11-16', [], 15, 15, NOW);
+  const at = (time) => slots.find((slot) => slot.start === `2026-11-16T${time}`);
+  assert.equal(at('12:45').past, true); // −15 минут
+  assert.equal(at('13:00').past, true); // ровно сейчас — слот прошёл
+  assert.equal(at('13:15').past, false); // +15 минут — будущий
 });
 
 test('окно записи включает сегодня и следующие 13 календарных дней в часовом поясе Owner', () => {
