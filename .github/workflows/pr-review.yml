@@ -113,7 +113,7 @@ jobs:
     if: needs.budget.outputs.decision == 'run'
     runs-on: ubuntu-latest
     # Тайм-аут задания: подготовка окружения, модель (шаг модели ограничен
-    # отдельно — 15 минут) и публикация итога.
+    # отдельно — 16 минут) и публикация итога.
     timeout-minutes: 25
     steps:
       - name: Checkout repository
@@ -150,6 +150,12 @@ jobs:
             echo 'Проведи ревью изменений по критериям из REVIEW.md (ниже) и запиши результат в файл findings.md в текущем каталоге.'
             echo 'Формат каждого замечания: файл, строка, условие ошибки, последствие. Если дефектов нет — напиши прямо: «Дефектов по критериям не найдено». Форматирование и стиль не проверяй.'
             echo
+            echo '## Результаты проверок CI (уже выполнены до запуска модели, повторный прогон не нужен)'
+            echo
+            echo '- `mise run check` зелёный: контракт и SDK, линтер, все тесты, mutation-тест.'
+            echo '- Браузерная проверка прошла, артефакт trace загружен.'
+            echo '- Твоя работа — только чтение: дифф, REVIEW.md и затронутые файлы; полноценные проверки не запускай, экономь время.'
+            echo
             echo '## Критерии (REVIEW.md)'
             echo
             cat REVIEW.md
@@ -161,7 +167,7 @@ jobs:
             echo
             echo '```'
             echo
-            echo 'Рабочий каталог — репозиторий проекта: при сомнениях читай файлы и запускай проверки (mise run check).'
+            echo 'Читай только дифф и непосредственно затронутые им файлы; отдельные запуски команд и проверок не выполняй — результаты CI приведены выше. Уложись в лимит времени: как только критерии пройдены, записывай findings.md.'
           } > review-prompt.md
           wc -c review-prompt.md
 
@@ -172,7 +178,7 @@ jobs:
           OPENCODE_PERMISSION: '{"external_directory": {"*": "allow"}, "doom_loop": "deny", "read": {"*.env": "deny", "*.env.*": "deny", "*.env.example": "allow"}}'
         run: |
           set +e
-          timeout --signal=TERM --kill-after=30s 900 opencode run \
+          timeout --signal=TERM --kill-after=30s 1000 opencode run \
             --auto \
             --model "$MODEL" \
             --file review-prompt.md \
@@ -210,7 +216,7 @@ jobs:
             used_now=$used_before
           elif [ "$MODEL_EXIT" = '124' ] || [ "$MODEL_EXIT" = '137' ]; then
             status=timeout
-            reason='Модель не уложилась в лимит шага (15 минут).'
+            reason='Модель не уложилась в лимит шага (16 минут).'
             used_now=$((used_before + 1))
           elif [ "$MODEL_EXIT" = '126' ] || [ "$MODEL_EXIT" = '127' ]; then
             status=infra
